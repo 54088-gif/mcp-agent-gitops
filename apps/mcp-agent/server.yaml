@@ -1,0 +1,43 @@
+# --- MCP Server Service ---
+# 用于让 Gateway 在集群内部访问 Server
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server-service
+  namespace: ai-services
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  selector:
+    app: mcp-hr-server
+
+---
+# --- MCP Server Deployment ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-hr-server
+  namespace: ai-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mcp-hr-server
+  template:
+    metadata:
+      labels:
+        app: mcp-hr-server
+    spec:
+      containers:
+      - name: server
+        image: mcp-hr-server:v1
+        imagePullPolicy: IfNotPresent # 使用本地导入的镜像，不尝试去 Docker Hub 拉取
+        env:
+        - name: DSN
+          # 连接在模块二中部署的 MySQL 服务
+          # 格式: user:password@tcp(service-name:port)/dbname
+          value: "root:native@tcp(mysql-service:3306)/hr_db"
+        ports:
+        - containerPort: 8080

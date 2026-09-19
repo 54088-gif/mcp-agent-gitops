@@ -1,0 +1,40 @@
+# --- AI Gateway Service ---
+# 使用 NodePort 暴露服务，方便浏览器访问
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-gateway-service
+  namespace: ai-services
+spec:
+  type: NodePort
+  ports:
+  - port: 3000
+    targetPort: 3000
+    nodePort: 30080 # 固定端口，方便记忆
+  selector:
+    app: ai-gateway
+
+---
+# --- AI Gateway Deployment ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-gateway
+  namespace: ai-services
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-gateway
+  template:
+    metadata:
+      labels:
+        app: ai-gateway
+    spec:
+      containers:
+      - name: gateway
+        image: ai-gateway:v1
+        imagePullPolicy: IfNotPresent # 同样使用本地镜像
+        ports:
+        - containerPort: 3000
+        # Gateway 代码中硬编码了连接地址，所以这里不需要环境变量
