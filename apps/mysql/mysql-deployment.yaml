@@ -1,0 +1,105 @@
+# --- 1. ConfigMap: 存放初始化SQL脚本 ---
+# 使用 ConfigMap 挂载进去，以后修改 SQL 就不需要重新构建镜像
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init-scripts
+  namespace: ai-services
+data:
+  # 这里有一个技巧：直接把上一步写的SQL文件内容引用到这里
+  # 在Docker中，/docker-entrypoint-initdb.d/ 目录下的 .sql 文件会在首次启动时自动执行
+  init.sql: |
+    CREATE DATABASE IF NOT EXISTS hr_db;
+    USE hr_db;
+    CREATE TABLE IF NOT EXISTS departments (
+        dept_id INT PRIMARY KEY,
+        dept_name VARCHAR(50) NOT NULL,
+        location VARCHAR(50)
+    );
+    CREATE TABLE IF NOT EXISTS employees (
+        emp_id INT PRIMARY KEY,
+        name VARCHAR(50) NOT NULL,
+        role VARCHAR(50),
+        salary DECIMAL(10, 2),
+        dept_id INT,
+        FOREIGN KEY (dept_id) REFERENCES departments(dept_id)
+    );
+    INSERT INTO departments VALUES (1, 'Engineering', 'Building A'), (2, 'Sales', 'Building B'), (3, 'HR', 'Building A');
+    INSERT INTO employees VALUES 
+    (101, 'Alice', 'Engineer', 90000, 1),
+    (102, 'Bob', 'Manager', 120000, 1),
+    (103, 'Charlie', 'Salesperson', 70000, 2),
+    (104, 'David', 'Recruiter', 60000, 3),
+    (105, 'Eve', 'Engineer', 95000, 1);
+
+---
+# --- 2. PVC: 申请持久化存储 ---
+# 数据库必须持久化，否则 Pod 重启后数据会丢失
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+  namespace: ai-services
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # 使用环境里已经配好的 OpenEBS 存储类
+  storageClassName: openebs-hostpath
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+# --- 3. Deployment: 定义 MySQL 实例 ---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: ai-services
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+  strategy:
+    type: Recreate # 数据库通常用重建策略，避免多实例同时写坏数据
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0 # 使用官方镜像
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "native" # 实验环境密码统一，生产环境请用 Secret
+        - name: MYSQL_DATABASE
+          value: "hr_db"  # 默认创建的库名
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+        - name: mysql-storage
+          mountPath: /var/lib/mysql # MySQL数据存放的标准路径
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d # 挂载初始化脚本的位置
+      volumes:
+      - name: mysql-storage
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+      - name: init-scripts
+        configMap:
+          name: mysql-init-scripts
+
+---
+# --- 4. Service: 暴露服务 ---
+# 让集群内的其他应用（如我们将要写的 MCP Server）能通过 mysql-service 访问数据库
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+  namespace: ai-services
+spec:
+  ports:
+  - port: 3306
+  selector:
+    app: mysql
