@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
       - name: gateway
-        image: ai-gateway:v1
+        image: localhost/ai-gateway 
         imagePullPolicy: IfNotPresent # 同样使用本地镜像
         ports:
         - containerPort: 3000
